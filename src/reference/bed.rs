@@ -1,0 +1,43 @@
+use anyhow::{Context, Result};
+use std::fs::File;
+use std::{
+    collections::HashMap,
+    io::{BufRead, BufReader},
+    path::Path,
+};
+
+/// Load windows from a BED file into a per-chromosome map
+pub fn load_windows(
+    bed: &Path,
+    chromosomes: &Vec<String>,
+) -> Result<HashMap<String, Vec<(u64, u64)>>> {
+    let f = File::open(bed).context("Opening window BED")?;
+    let reader = BufReader::new(f);
+    let mut mapping: HashMap<String, Vec<(u64, u64)>> = HashMap::new();
+    // Ensure all chromosomes are added
+    chromosomes.iter().for_each(|chr| {
+        mapping.entry(chr.to_string()).or_default();
+    });
+    for line in reader.lines() {
+        let l = line?;
+        if l.starts_with('#') {
+            continue;
+        }
+        let cols: Vec<&str> = l.split_whitespace().collect();
+        let chr = cols[0];
+        if !chromosomes.contains(&chr.to_owned()) {
+            continue;
+        }
+        let start: u64 = cols[1].parse().context("Parsing window start")?;
+        let end: u64 = cols[2].parse().context("Parsing window end")?;
+        mapping
+            .entry(chr.to_string())
+            .or_default()
+            .push((start, end));
+    }
+    for v in mapping.values_mut() {
+        // Ensure sorted windows
+        v.sort_unstable_by_key(|&(s, _)| s);
+    }
+    Ok(mapping)
+}
