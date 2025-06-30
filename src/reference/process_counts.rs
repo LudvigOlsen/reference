@@ -149,27 +149,16 @@ pub fn motif_order(bins: &[FxHashMap<String, impl Copy>]) -> Vec<String> {
     motifs
 }
 
-/// Return all possible reference motifs for a given k.
+/// Return all possible reference motifs (4ᵏ) for a given k.
 ///
-/// * k = 2 returns 25 strings (AA, AC, … TT) without N.
-/// * k odd ≥ 3 returns 4ᵏ strings (no N in any position).
+/// No motifs with 'N' are returned.
 pub fn all_motifs(k: usize, specs: &HashMap<u8, KmerSpec>) -> Vec<String> {
-    assert!(k == 2 || (k % 2 == 1 && k >= 3), "k must be 2 or odd ≥ 3");
-
-    if k == 2 {
-        let spec = &specs[&(2 as u8)];
-        (0u64..25)
-            .map(|c| spec.decode_kmer(c))
-            .filter(|m| !m.contains('N'))
-            .collect()
-    } else {
-        let spec = &specs[&(k as u8)];
-        let max_code = 5u64.pow(k as u32) - 1; // no-N space
-        (0..=max_code)
-            .map(|c| spec.decode_kmer(c))
-            .filter(|m| !m.contains('N'))
-            .collect()
-    }
+    let spec = &specs[&(k as u8)];
+    let max_code = 5u64.pow(k as u32) - 1; // no-N space
+    (0..=max_code)
+        .map(|c| spec.decode_kmer(c))
+        .filter(|m| !m.contains('N'))
+        .collect()
 }
 
 // Collapsing of motifs
@@ -192,7 +181,7 @@ fn revcomp(seq: &str) -> String {
     seq.chars().rev().map(comp).collect()
 }
 
-/// Collapse a map of odd-length reference k-mer counts into canonical keys, summing counts
+/// Collapse a map of reference k-mer counts into canonical keys, summing counts
 pub fn collapse_map(map: &FxHashMap<String, u64>) -> FxHashMap<String, u64> {
     let mut out: FxHashMap<String, u64> = FxHashMap::default();
     for (kmer, &count) in map {

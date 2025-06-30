@@ -341,8 +341,6 @@ fn process_chrom(
         let mut bl_ptr = 0;
         let mut bin_info = Vec::with_capacity(num_windows);
         for (_b, (wstart, wend)) in windows.iter().cloned().enumerate() {
-            // TODO: This is not meaningful across kmer types?? 2 vs odd and duplicates?
-            // let total: u64 = counts_by_window[_b].values().map(|&v| v as u64).sum();
             let overlap_perc =
                 compute_blacklist_overlap(blacklist_intervals, wstart, wend, &mut bl_ptr);
             bin_info.push((chr.to_string(), wstart, wend, overlap_perc)); // total,

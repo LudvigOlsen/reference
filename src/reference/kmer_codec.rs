@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::Hash;
 
-/// * `k`    – length (2 or any odd ≥ 3)  
+/// * `k`    – length
 /// * `code` – packed reference code in the narrowest type, promoted to u64
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Kmer {
