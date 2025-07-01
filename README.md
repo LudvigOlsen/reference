@@ -132,6 +132,9 @@ reference --help
 | `-t`, `--n-threads <N>`     | CPU threads                                             |
 
 
+---
+
+
 ## FAQ
 
 ### What bases are recognized?
