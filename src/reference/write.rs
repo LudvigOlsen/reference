@@ -102,6 +102,23 @@ type Idx = u64; // 64-bit row and column indices
 ///
 /// * `bins`   – Per-bin motif→count hash maps
 /// * `motifs` – Full ordered motif list; defines column order
+///
+/// Examples
+/// --------
+///
+/// Python: Loading with scipy.sparse and looping through each window:
+///
+/// ```
+/// coo = scipy.sparse.load_npz("k11_counts_sparse.npz")`
+/// csr = coo.tocsr()
+/// for i in range(csr.shape[0]):
+///     sparse_row = csr.getrow(i)
+///     dense_row = sparse_row.toarray().ravel()
+///     ...
+///
+/// with open("my_prefix_motifs.txt") as f:
+///     motifs = [line.strip() for line in f]
+/// ```
 pub fn write_category_sparse(
     bins: &[FxHashMap<String, BigCount>],
     motifs: &[String],
