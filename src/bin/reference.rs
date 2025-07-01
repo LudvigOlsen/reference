@@ -32,7 +32,7 @@ use std::{
 
 EXAMPLES:
     // Using defaults
-    $ reference --bam <path/to/sample.bam> --output-dir <path/to/output_directory/> --ref-2bit <path/to/hg38.2bit> --n-threads <N> --global -b <path/to/blacklist_1.bed> -b <path/to/blacklist_2.bed>
+    $ reference --ref-2bit <path/to/hg38.2bit> --output-dir <path/to/output_directory/>  --n-threads <N> --global -b <path/to/blacklist_1.bed> -b <path/to/blacklist_2.bed>
     ",
     author = "Ludvig Renbo Olsen",
     version = "0.0.1"
@@ -42,7 +42,13 @@ EXAMPLES:
 struct Cli {
     /// 2bit reference file [path]
     /// E.g., "hg38.2bit"
-    #[clap(long, value_parser, required = true, help_heading = "Core")]
+    #[clap(
+        short = 'r',
+        long,
+        value_parser,
+        required = true,
+        help_heading = "Core"
+    )]
     pub ref_2bit: PathBuf,
 
     /// Output directory for results [path]
@@ -205,7 +211,10 @@ fn run() -> Result<()> {
 
     pb.set_position(0);
 
-    let results: Vec<(Vec<FxHashMap<Kmer, BigCount>>, Vec<(String, u64, u64, f64)>)> = chromosomes
+    let results: Vec<(
+        Vec<FxHashMap<Kmer, BigCount>>,
+        Vec<(String, u64, u64, u64, f64)>,
+    )> = chromosomes
         .par_iter()
         .map(|chr| -> Result<(_, _)> {
             let out = process_chrom(
@@ -248,7 +257,23 @@ fn run() -> Result<()> {
     };
 
     // Prepare to get correct motifs (collapsed, N-filtered, etc.)
-    let prepared_counts = prepare_decoded_counts(&all_bins, opt.canonical, &kmer_specs);
+    let mut prepared_counts = prepare_decoded_counts(&all_bins, opt.canonical, &kmer_specs);
+
+    if opt.by_bed.is_some() {
+        println!("Start: Reordering counts by original window index in bed file");
+
+        // Zip into a single Vec
+        let mut paired: Vec<_> = bin_info
+            .into_iter()
+            .zip(prepared_counts.into_iter())
+            .collect(); // (BinInfo, DecodedCounts)
+
+        // Sort primarily by original window index
+        paired.sort_unstable_by_key(|(info, _)| info.3);
+
+        // Unzip back out if you need separate Vecs again
+        (bin_info, prepared_counts) = paired.into_iter().unzip();
+    }
 
     println!("Start: Writing counts to disk");
 
@@ -260,7 +285,7 @@ fn run() -> Result<()> {
         let mut bed_writer = BufWriter::new(
             File::create(&opt.output_dir.join("bins.bed")).context("Create bed fail")?,
         );
-        for (chr, start, end, overlap_perc) in &bin_info {
+        for (chr, start, end, _, overlap_perc) in &bin_info {
             writeln!(bed_writer, "{}\t{}\t{}\t{}", chr, start, end, overlap_perc)
                 .context("Write bed line fail")?;
         }
@@ -274,14 +299,18 @@ fn run() -> Result<()> {
 
 /* ---------- main routine -------------------------------------------- */
 
+/// * windows  -  Optional slice of tuples with (start, end, original_idx)
 fn process_chrom(
     chr: &str,
     opt: &Cli,
     kmer_specs: &HashMap<u8, KmerSpec>,
-    windows: Option<&[(u64, u64)]>,
+    windows: Option<&[(u64, u64, u64)]>,
     // gc_bins: usize,
     blacklist_intervals: &[(u64, u64)],
-) -> anyhow::Result<(Vec<FxHashMap<Kmer, BigCount>>, Vec<(String, u64, u64, f64)>)> {
+) -> anyhow::Result<(
+    Vec<FxHashMap<Kmer, BigCount>>,
+    Vec<(String, u64, u64, u64, f64)>,
+)> {
     let mut seq_bytes = read_seq(&opt.ref_2bit, chr)?;
     apply_blacklist_mask_to_seq(&mut seq_bytes, &blacklist_intervals);
     let chrom_len = seq_bytes.len() as usize;
@@ -291,18 +320,18 @@ fn process_chrom(
     drop(seq_bytes);
 
     // Calculate window coordinates for all windowing options
-    let windows: Vec<(u64, u64)> = if let Some(sz) = opt.by_size {
+    let windows: Vec<(u64, u64, u64)> = if let Some(sz) = opt.by_size {
         // by-size
         let num_windows = ((chrom_len + sz - 1) / sz) as usize;
         (0..num_windows)
-            .map(|s| ((s * sz) as u64, (sz + s * sz) as u64))
+            .map(|s| ((s * sz) as u64, (sz + s * sz) as u64, s as u64))
             .collect()
     } else if opt.by_bed.is_some() {
         // by-bed
         windows.unwrap().to_owned()
     } else {
         // global
-        vec![(0, chrom_len as u64)]
+        vec![(0, chrom_len as u64, 0u64)]
     };
 
     let num_windows = windows.len();
@@ -319,7 +348,7 @@ fn process_chrom(
         });
     }
 
-    for (win_idx, &(win_start, mut win_end)) in windows.iter().enumerate() {
+    for (win_idx, &(win_start, mut win_end, _)) in windows.iter().enumerate() {
         let counts = &mut counts_by_window[win_idx.clone()];
         win_end = win_end.min(chrom_len as u64);
 
@@ -341,10 +370,18 @@ fn process_chrom(
         // build bin_info from the exact BED windows
         let mut bl_ptr = 0;
         let mut bin_info = Vec::with_capacity(num_windows);
-        for (_b, (wstart, wend)) in windows.iter().cloned().enumerate() {
+        for (_b, (win_start, mut win_end, original_win_idx)) in windows.iter().cloned().enumerate()
+        {
+            win_end = win_end.min(chrom_len as u64);
             let overlap_perc =
-                compute_blacklist_overlap(blacklist_intervals, wstart, wend, &mut bl_ptr);
-            bin_info.push((chr.to_string(), wstart, wend, overlap_perc)); // total,
+                compute_blacklist_overlap(blacklist_intervals, win_start, win_end, &mut bl_ptr);
+            bin_info.push((
+                chr.to_string(),
+                win_start,
+                win_end,
+                original_win_idx,
+                overlap_perc,
+            )); // total,
         }
         bin_info
     };

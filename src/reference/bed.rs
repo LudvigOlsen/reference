@@ -10,14 +10,16 @@ use std::{
 pub fn load_windows(
     bed: &Path,
     chromosomes: &Vec<String>,
-) -> Result<HashMap<String, Vec<(u64, u64)>>> {
+) -> Result<HashMap<String, Vec<(u64, u64, u64)>>> {
     let f = File::open(bed).context("Opening window BED")?;
     let reader = BufReader::new(f);
-    let mut mapping: HashMap<String, Vec<(u64, u64)>> = HashMap::new();
+    let mut mapping: HashMap<String, Vec<(u64, u64, u64)>> = HashMap::new();
     // Ensure all chromosomes are added
     chromosomes.iter().for_each(|chr| {
         mapping.entry(chr.to_string()).or_default();
     });
+    // Original interval index for reconstructing order
+    let mut win_idx = 0u64;
     for line in reader.lines() {
         let l = line?;
         if l.starts_with('#') {
@@ -33,11 +35,12 @@ pub fn load_windows(
         mapping
             .entry(chr.to_string())
             .or_default()
-            .push((start, end));
+            .push((start, end, win_idx));
+        win_idx += 1;
     }
     for v in mapping.values_mut() {
         // Ensure sorted windows
-        v.sort_unstable_by_key(|&(s, _)| s);
+        v.sort_unstable_by_key(|&(s, e, _)| (s, e));
     }
     Ok(mapping)
 }
