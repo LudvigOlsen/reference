@@ -49,7 +49,6 @@ pub fn write_decoded_counts_matrix(
         } else {
             write_category(&mut ref_bins, &motifs_by_k[&k], &tag, output_dir)?;
         }
-        
     }
 
     Ok(())
@@ -99,12 +98,10 @@ fn write_category(
 
 type Idx = u64; // 64-bit row and column indices
 
-/// Write COO-format sparse matrix as <prefix>_counts_sparse.npz and <prefix>_motifs.txt
+/// Write SciPy-compatible COO matrix as <prefix>_counts_sparse.npz + <prefix>_motifs.txt
 ///
 /// * `bins`   – Per-bin motif→count hash maps
 /// * `motifs` – Full ordered motif list; defines column order
-
-/// Write SciPy-compatible COO matrix as <prefix>_counts_sparse.npz + <prefix>_motifs.txt
 pub fn write_category_sparse(
     bins: &[FxHashMap<String, BigCount>],
     motifs: &[String],
@@ -159,7 +156,7 @@ pub fn write_category_sparse(
     let npz_path = out_dir.join(format!("{prefix}_counts_sparse.npz"));
     let file = File::create(&npz_path)?;
     let mut npz = ZipWriter::new(file);
-    let opts = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Zstd);
+    let opts = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     npz.start_file("row.npy", opts)?;
     npz.write_all(&row_npy)?;
