@@ -1,6 +1,5 @@
 use crate::cli::BigCount;
 use crate::reference::kmer_codec::{DecodedCounts, KmerSpec};
-use crate::reference::process_counts::motif_order;
 use fxhash::FxHashMap;
 use ndarray::Array2;
 use ndarray_npy::write_npy;
@@ -25,6 +24,7 @@ use std::path::Path;
 pub fn write_decoded_counts_matrix(
     prepared_windows: &[DecodedCounts],
     kmer_specs: &HashMap<u8, KmerSpec>,
+    motifs_by_k: &HashMap<u8, Vec<String>>,
     output_dir: &Path,
 ) -> anyhow::Result<()> {
     let n_win = prepared_windows.len();
@@ -38,46 +38,48 @@ pub fn write_decoded_counts_matrix(
             }
         }
         let tag = format!("k{}", k);
-        write_category(&ref_bins, &tag, output_dir)?;
+        write_category(&mut ref_bins, &tag, &motifs_by_k[&k], output_dir)?;
     }
 
     Ok(())
 }
 
 /// Write <prefix>_counts.npy and <prefix>_motifs.txt
+///
+/// * `motifs`  - The motifs to include for all bins in the order you want it saved in.
 fn write_category(
     bins: &[FxHashMap<String, BigCount>],
     prefix: &str,
+    motifs: &[String],
     out_dir: &Path,
 ) -> anyhow::Result<()> {
     if bins.is_empty() {
         return Ok(()); // nothing to write
     }
 
-    // Consistent column order = sorted keys of the first bin
-    let motifs = motif_order(&bins);
+    // Output matrix
+    let n_rows = bins.len();
+    let n_cols = motifs.len();
+    let mut mat = Array2::<BigCount>::zeros((n_rows, n_cols));
 
-    // Map motif → column index
-    let col_of: FxHashMap<_, _> = motifs.iter().enumerate().map(|(i, m)| (m, i)).collect();
+    // Pre-compute motif → column index once
+    let col_of: FxHashMap<_, _> = motifs.iter().enumerate().map(|(c, m)| (m, c)).collect();
 
-    let n = bins.len();
-    let m = motifs.len();
-    let mut mat = Array2::<BigCount>::zeros((n, m));
-
-    for (r, hm) in bins.iter().enumerate() {
+    for (row, hm) in bins.iter().enumerate() {
         for (motif, &cnt) in hm {
-            if let Some(&c) = col_of.get(motif) {
-                mat[(r, c)] = cnt;
+            if let Some(&col) = col_of.get(motif) {
+                mat[(row, col)] = cnt; // Counts overwrite the zero
             }
         }
     }
 
-    // Write matrix
-    write_npy(out_dir.join(format!("{}_counts.npy", prefix)), &mat)?;
-    // Write motif list
-    let mut f = File::create(out_dir.join(format!("{}_motifs.txt", prefix)))?;
-    for mo in motifs {
-        writeln!(f, "{}", mo)?;
+    // Persist outputs
+    write_npy(out_dir.join(format!("{prefix}_counts.npy")), &mat)?;
+
+    let mut txt = File::create(out_dir.join(format!("{prefix}_motifs.txt")))?;
+    for m in motifs {
+        writeln!(txt, "{m}")?;
     }
+
     Ok(())
 }

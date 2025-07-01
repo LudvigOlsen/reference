@@ -257,7 +257,8 @@ fn run() -> Result<()> {
     };
 
     // Prepare to get correct motifs (collapsed, N-filtered, etc.)
-    let mut prepared_counts = prepare_decoded_counts(&all_bins, opt.canonical, &kmer_specs);
+    let (mut prepared_counts, motifs_by_k) =
+        prepare_decoded_counts(&all_bins, opt.canonical, &kmer_specs);
 
     if opt.by_bed.is_some() {
         println!("Start: Reordering counts by original window index in bed file");
@@ -277,7 +278,7 @@ fn run() -> Result<()> {
 
     println!("Start: Writing counts to disk");
 
-    write_decoded_counts_matrix(&prepared_counts, &kmer_specs, &opt.output_dir)?;
+    write_decoded_counts_matrix(&prepared_counts, &kmer_specs, &motifs_by_k, &opt.output_dir)?;
 
     // Write bins BED file
     if !opt.global {

@@ -5,28 +5,13 @@ use crate::cli::BigCount;
 use crate::reference::kmer_codec::{DecodedCounts, KmerSpec};
 use std::collections::{HashMap, HashSet};
 
-/// Ensure every bin has all motifs; insert 0 where missing.
-fn pad_bins_zero(
-    bins: Vec<FxHashMap<String, BigCount>>,
-    motifs: &[String],
-) -> Vec<FxHashMap<String, BigCount>> {
-    bins.into_iter()
-        .map(|mut hm| {
-            for m in motifs {
-                hm.entry(m.clone()).or_insert(0);
-            }
-            hm
-        })
-        .collect()
-}
-
 fn prepare_kmer_category(
     windows: &[DecodedCounts],
     kmer_specs: &HashMap<u8, KmerSpec>,
     k: usize,
     canonical: bool,
     ensure_all: bool,
-) -> Vec<FxHashMap<String, BigCount>> {
+) -> (Vec<FxHashMap<String, BigCount>>, Vec<String>) {
     // Extract the raw maps
     let raw_bins = extract_bins(windows, k, canonical);
 
@@ -38,28 +23,27 @@ fn prepare_kmer_category(
     };
 
     // Build the (canonical) motif list *once* so we know what to pad with
-    let motifs = collect_motifs(&raw_bins, base_motifs, canonical, ensure_all);
+    let mut motifs = collect_motifs(&raw_bins, base_motifs, canonical, ensure_all);
+    motifs.sort_unstable();
 
-    pad_bins_zero(raw_bins, &motifs)
+    (raw_bins, motifs)
 }
 
 /// Prepare decoded counts for all kmer sizes in all windows.
 ///
-/// NOTE: For kmers of size 2, 3 and 5 it inserts zeroes for missing motifs.
-/// This is not the case for larger kmer sizes as the number quickly explodes.
+/// Extracts motifs per kmer spec to allow future padding.
+/// For kmers of size 1..6, this includes all possible motifs.
+/// For larger kmer sizes, only the seen motifs is included as the number otherwise explodes.
 ///
 /// * `windows`        – slice of per-window raw counts
 /// * `canonical`      – canonical reverse complements when true
 /// * `kmer_specs`     – validated specs for every k we want to keep
 ///
-/// The result has, for every window:
-/// * `matches`    – k → motif → count
-/// * `mismatches` – k → motif → count
 pub fn prepare_decoded_counts(
     windows: &[DecodedCounts],
     canonical: bool,
     kmer_specs: &HashMap<u8, KmerSpec>,
-) -> Vec<DecodedCounts> {
+) -> (Vec<DecodedCounts>, HashMap<u8, Vec<String>>) {
     let n_windows = windows.len();
 
     // Initialise one empty DecodedCounts per window
@@ -70,18 +54,22 @@ pub fn prepare_decoded_counts(
         n_windows
     ];
 
+    let mut motifs_by_k: HashMap<u8, Vec<String>> = HashMap::new();
+
     // Loop over every k we validated
     for (&k, _) in kmer_specs {
         // Reference (match) bins for this k
-        let count_bins = prepare_kmer_category(windows, kmer_specs, k as usize, canonical, k <= 5);
+        let (count_bins, motifs) =
+            prepare_kmer_category(windows, kmer_specs, k as usize, canonical, k <= 6);
 
         // Insert into the corresponding window
         for i in 0..n_windows {
             out[i].counts.insert(k, count_bins[i].clone());
         }
+        motifs_by_k.insert(k, motifs);
     }
 
-    out
+    (out, motifs_by_k)
 }
 
 /// Collect per-window bins for the requested motif type and (optionally)
