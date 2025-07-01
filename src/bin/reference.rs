@@ -32,7 +32,7 @@ use std::{
 
 EXAMPLES:
     // Using defaults
-    $ reference --ref-2bit <path/to/hg38.2bit> --output-dir <path/to/output_directory/>  --n-threads <N> --global -b <path/to/blacklist_1.bed> -b <path/to/blacklist_2.bed>
+    $ reference --ref-2bit <path/to/hg38.2bit> --output-dir <path/to/output_directory/> --kmer-sizes 3 --n-threads <N> --global -b <path/to/blacklist_1.bed> -b <path/to/blacklist_2.bed>
     ",
     author = "Ludvig Renbo Olsen",
     version = "0.0.1"
