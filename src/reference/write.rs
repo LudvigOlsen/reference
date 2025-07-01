@@ -1,12 +1,17 @@
 use crate::cli::BigCount;
 use crate::reference::kmer_codec::{DecodedCounts, KmerSpec};
+use anyhow::{Context, Result};
 use fxhash::FxHashMap;
-use ndarray::Array2;
-use ndarray_npy::write_npy;
+use ndarray::{arr1, Array2, ArrayView1};
+use ndarray_npy::WriteNpyExt; // trait brings .write_npy into scope
+use ndarray_npy::{write_npy, WritableElement};
+use num_traits::NumCast;
 use std::collections::HashMap;
 use std::fs::File;
+use std::io::Cursor;
 use std::io::Write;
 use std::path::Path;
+use zip::{write::SimpleFileOptions, ZipWriter};
 
 /// Write one `.npy` matrix and a companion `*_motifs.txt` file for every
 /// k present in `prepared_windows`.
@@ -26,6 +31,7 @@ pub fn write_decoded_counts_matrix(
     kmer_specs: &HashMap<u8, KmerSpec>,
     motifs_by_k: &HashMap<u8, Vec<String>>,
     output_dir: &Path,
+    save_sparse: bool,
 ) -> anyhow::Result<()> {
     let n_win = prepared_windows.len();
 
@@ -38,7 +44,12 @@ pub fn write_decoded_counts_matrix(
             }
         }
         let tag = format!("k{}", k);
-        write_category(&mut ref_bins, &tag, &motifs_by_k[&k], output_dir)?;
+        if save_sparse {
+            write_category_sparse(&mut ref_bins, &motifs_by_k[&k], &tag, output_dir)?;
+        } else {
+            write_category(&mut ref_bins, &motifs_by_k[&k], &tag, output_dir)?;
+        }
+        
     }
 
     Ok(())
@@ -49,8 +60,8 @@ pub fn write_decoded_counts_matrix(
 /// * `motifs`  - The motifs to include for all bins in the order you want it saved in.
 fn write_category(
     bins: &[FxHashMap<String, BigCount>],
-    prefix: &str,
     motifs: &[String],
+    prefix: &str,
     out_dir: &Path,
 ) -> anyhow::Result<()> {
     if bins.is_empty() {
@@ -82,4 +93,122 @@ fn write_category(
     }
 
     Ok(())
+}
+
+// Sparse version
+
+type Idx = u64; // 64-bit row and column indices
+
+/// Write COO-format sparse matrix as <prefix>_counts_sparse.npz and <prefix>_motifs.txt
+///
+/// * `bins`   – Per-bin motif→count hash maps
+/// * `motifs` – Full ordered motif list; defines column order
+
+/// Write SciPy-compatible COO matrix as <prefix>_counts_sparse.npz + <prefix>_motifs.txt
+pub fn write_category_sparse(
+    bins: &[FxHashMap<String, BigCount>],
+    motifs: &[String],
+    prefix: &str,
+    out_dir: &Path,
+) -> Result<()> {
+    if bins.is_empty() {
+        return Ok(());
+    }
+
+    let n_rows = bins.len();
+    let n_cols = motifs.len();
+
+    // Motif --> column lookup
+    let motif_index: FxHashMap<&str, Idx> = motifs
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (m.as_str(), i as Idx))
+        .collect();
+
+    // Collect triplets with one allocation
+    let nnz: usize = bins.iter().map(|hm| hm.len()).sum();
+    let mut row = Vec::<Idx>::with_capacity(nnz);
+    let mut col = Vec::<Idx>::with_capacity(nnz);
+    let mut val = Vec::<BigCount>::with_capacity(nnz);
+
+    for (r, hm) in bins.iter().enumerate() {
+        let ri: Idx = NumCast::from(r).context("row index overflow u64")?;
+        for (motif, &count) in hm {
+            if let Some(&ci) = motif_index.get(motif.as_str()) {
+                row.push(ri);
+                col.push(ci);
+                val.push(count);
+            }
+        }
+    }
+
+    // Serialise numeric vectors
+    let row_npy = vec_to_npy(&row)?;
+    let col_npy = vec_to_npy(&col)?;
+    let val_npy = vec_to_npy(&val)?;
+
+    // shape = np.array([n_rows, n_cols], dtype=int64)
+    let shape_arr = arr1(&[n_rows as i64, n_cols as i64]);
+    let mut shape_buf = Vec::<u8>::new();
+    shape_arr.write_npy(Cursor::new(&mut shape_buf))?;
+
+    // format = np.array('coo', dtype='|S3')
+    let format_buf = numpy_string_scalar("coo")?;
+
+    // Pack everything into <prefix>_counts_sparse.npz
+    let npz_path = out_dir.join(format!("{prefix}_counts_sparse.npz"));
+    let file = File::create(&npz_path)?;
+    let mut npz = ZipWriter::new(file);
+    let opts = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Zstd);
+
+    npz.start_file("row.npy", opts)?;
+    npz.write_all(&row_npy)?;
+    npz.start_file("col.npy", opts)?;
+    npz.write_all(&col_npy)?;
+    npz.start_file("data.npy", opts)?;
+    npz.write_all(&val_npy)?;
+    npz.start_file("shape.npy", opts)?;
+    npz.write_all(&shape_buf)?;
+    npz.start_file("format.npy", opts)?;
+    npz.write_all(&format_buf)?;
+    npz.finish()?;
+
+    // Plain-text motif list
+    let mut txt = File::create(out_dir.join(format!("{prefix}_motifs.txt")))?;
+    for m in motifs {
+        writeln!(txt, "{m}")?;
+    }
+
+    Ok(())
+}
+
+// Vec --> .npy buffer helper
+fn vec_to_npy<T: WritableElement>(v: &[T]) -> Result<Vec<u8>> {
+    let view: ArrayView1<'_, T> = ArrayView1::from(v);
+    let mut buf = Vec::<u8>::new();
+    view.write_npy(Cursor::new(&mut buf))?;
+    Ok(buf)
+}
+
+// Builds a scalar string .npy with dtype '|S{len}'
+fn numpy_string_scalar(s: &str) -> Result<Vec<u8>> {
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    let header_body = format!("{{'descr': '|S{len}', 'fortran_order': False, 'shape': (), }}",);
+    let mut header = header_body.into_bytes();
+    header.push(b'\n');
+
+    // Pad header so that (10 + header_len) % 16 == 0
+    let mut header_len = header.len();
+    let magic_len = 6 + 2 + 2; // \x93NUMPY + ver + hdr_len field
+    let pad = (16 - ((magic_len + header_len) % 16)) % 16;
+    header.splice(header_len - 1..header_len - 1, vec![b' '; pad]);
+    header_len += pad;
+
+    let mut buf = Vec::<u8>::with_capacity(magic_len + header_len + len);
+    buf.extend_from_slice(b"\x93NUMPY\x01\x00");
+    buf.extend(&(header_len as u16).to_le_bytes());
+    buf.extend_from_slice(&header);
+    buf.extend_from_slice(bytes);
+    Ok(buf)
 }

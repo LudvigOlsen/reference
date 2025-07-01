@@ -129,6 +129,15 @@ struct Cli {
     /// The lexicographically lowest kmer is used.
     #[clap(short = 'c', long, help_heading = "Core")]
     canonical: bool,
+
+    /// Save counts as sparse-array. [flag]
+    ///
+    /// For large kmer-sizes, we cannot save dense arrays with all motifs
+    /// unless we have a LOT of RAM and storage space. Enable this
+    /// flag to save as a COO sparse array that can be opened in
+    /// python via `scipy.sparse.load_npz()`.
+    #[clap(long, help_heading = "Core")]
+    pub save_sparse: bool,
 }
 
 impl Cli {
@@ -277,8 +286,13 @@ fn run() -> Result<()> {
     }
 
     println!("Start: Writing counts to disk");
-
-    write_decoded_counts_matrix(&prepared_counts, &kmer_specs, &motifs_by_k, &opt.output_dir)?;
+    write_decoded_counts_matrix(
+        &prepared_counts,
+        &kmer_specs,
+        &motifs_by_k,
+        &opt.output_dir,
+        opt.save_sparse,
+    )?;
 
     // Write bins BED file
     if !opt.global {
