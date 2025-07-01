@@ -69,6 +69,9 @@ for sparse arrays (instead of `*_counts.npy`):
 | ------------------------------ | ----------------------------------------------------------- |
 | `results/k3_counts_sparse.npz` | SciPy COO archive (`data`, `row`, `col`, `shape`, `format`) |
 
+
+Note that ambiguous kmers (that include 'N') are not included.
+
 ---
 
 ## Working with the output in Python
@@ -129,3 +132,16 @@ reference --help
 | `-t`, `--n-threads <N>`     | CPU threads                                             |
 
 
+## FAQ
+
+### What bases are recognized?
+
+We only consider A, C, G, T, N. Any other bases are converted to 'N'.
+
+### What happens to kmers with 'N's in them?
+
+We discard all motifs with 'N' in them.
+
+### Can I make suggestions for the tool?
+
+Of course! Open an issue at `https://github.com/LudvigOlsen/reference/issues/new/choose`. 
