@@ -6,6 +6,8 @@ Written in Rust for speed and parallelism. Outputs standard NumPy/SciPy formats 
 
 Counting the occurence of reference k‑mers inside thousands of genomic windows is a common step in many bioinformatical pipelines. E.g. useful as features in machine learning models or for normalization and bias correction.
 
+**! WORK-IN-PROGRESS !**
+
 ---
 
 ## Key features
