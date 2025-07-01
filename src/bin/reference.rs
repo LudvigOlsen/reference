@@ -319,8 +319,9 @@ fn process_chrom(
         });
     }
 
-    for (win_idx, &(win_start, win_end)) in windows.iter().enumerate() {
+    for (win_idx, &(win_start, mut win_end)) in windows.iter().enumerate() {
         let counts = &mut counts_by_window[win_idx.clone()];
+        win_end = win_end.min(chrom_len as u64);
 
         for ref_pos in win_start..win_end {
             for enc in &encs {
