@@ -1,6 +1,4 @@
 pub mod io;
-pub mod opts;
-pub mod counters;
 
 
 pub type Count = u64;

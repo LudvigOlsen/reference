@@ -165,7 +165,7 @@ fn comp(b: char) -> char {
 }
 
 /// Reverse-complement of a plain sequence, e.g. "AC" → "GT"
-fn revcomp(seq: &str) -> String {
+pub fn revcomp(seq: &str) -> String {
     seq.chars().rev().map(comp).collect()
 }
 
@@ -187,7 +187,7 @@ pub fn collapse_set(set: &HashSet<String>) -> HashSet<String> {
 /// Return the canonical form of `kmer`: the lexicographically smaller
 /// of the k-mer and its reverse complement.
 #[inline]
-fn canonical(kmer: String) -> String {
+pub fn canonical(kmer: String) -> String {
     let rc = revcomp(&kmer);
     if kmer <= rc {
         kmer
