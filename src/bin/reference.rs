@@ -8,6 +8,7 @@ use reference::cli::io::read_seq;
 use reference::cli::BigCount;
 use reference::reference::bed::load_windows;
 use reference::reference::blacklist::*;
+use reference::reference::counting::{count_kmers_by_window, Enc};
 use reference::reference::kmer_codec::*;
 use reference::reference::process_counts::prepare_decoded_counts;
 use reference::reference::write::write_decoded_counts_matrix;
@@ -62,6 +63,9 @@ struct Cli {
     pub output_dir: PathBuf,
 
     /// List of K-mer sizes [integer].
+    ///
+    /// When counting for many kmer-sizes (>8) consider splitting
+    /// into multiple runs for speed and RAM purposes.
     #[clap(short = 'k', long, num_args = 1.., value_parser = value_parser!(u8).range(1..28), value_delimiter = ',', required=true, help_heading="Core")]
     pub kmer_sizes: Vec<u8>,
 
@@ -363,23 +367,7 @@ fn process_chrom(
         });
     }
 
-    for (win_idx, &(win_start, mut win_end, _)) in windows.iter().enumerate() {
-        let counts = &mut counts_by_window[win_idx.clone()];
-        win_end = win_end.min(chrom_len as u64);
-
-        for ref_pos in win_start..win_end {
-            for enc in &encs {
-                let k = enc.k;
-                let code = enc.codes.get(ref_pos as usize);
-
-                if code == enc.none || code == enc.n {
-                    continue;
-                }
-
-                *counts.entry(Kmer { k, code }).or_insert(0) += 1;
-            }
-        }
-    }
+    count_kmers_by_window(&mut counts_by_window, &encs, &windows, chrom_len as u64);
 
     let bin_info = {
         // build bin_info from the exact BED windows
@@ -402,11 +390,4 @@ fn process_chrom(
     };
 
     Ok((counts_by_window, bin_info))
-}
-
-struct Enc<'a> {
-    k: u8,
-    codes: &'a KmerCodes,
-    none: u64,
-    n: u64,
 }
