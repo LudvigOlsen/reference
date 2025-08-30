@@ -36,7 +36,7 @@ EXAMPLES:
     $ reference --ref-2bit <path/to/hg38.2bit> --output-dir <path/to/output_directory/> --kmer-sizes 3 --n-threads <N> --global -b <path/to/blacklist_1.bed> -b <path/to/blacklist_2.bed>
     ",
     author = "Ludvig Renbo Olsen",
-    version = "0.0.1"
+    version = env!("CARGO_PKG_VERSION")
 )]
 #[clap(group = ArgGroup::new("windows").required(true).args(&["by_size", "by_bed", "global"]).multiple(false))]
 #[clap(group = ArgGroup::new("chrom_select").args(&["chromosomes", "chromosomes_file"]).multiple(false))]
@@ -273,6 +273,7 @@ fn run() -> Result<()> {
     let (mut prepared_counts, motifs_by_k) =
         prepare_decoded_counts(&all_bins, opt.canonical, &kmer_specs);
 
+    // Sort by original index (when given a bed file)
     if opt.by_bed.is_some() {
         println!("Start: Reordering counts by original window index in bed file");
 
